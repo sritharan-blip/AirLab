@@ -1,0 +1,1 @@
+{"name":"airlab-studio","version":"4.8.0","private":true,"type":"module","scripts":{"start":"node serve.mjs","check":"node --check dist/app.js && node --check dist/hand-control.mjs && node --check dist/hand-worker.js && node --test tests/*.test.mjs"}}
