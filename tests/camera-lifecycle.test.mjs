@@ -6,29 +6,62 @@ import vm from 'node:vm';
 import {createFrameGate,TRACKING_PROFILES} from '../dist/tracking-pipeline.mjs';
 import {clamp,pinchState,chooseCamera,associateHands} from '../dist/interaction.mjs';
 
-function boot({nativeFrames=false,bladeTracking=false}={}){
- const elements=new Map(),events=new Map(),workers=[],captures=[];let stopped=0,closed=0,clock=100,nextCallback=0;const callbacks=new Map(),cursors=[],calls={begin:[],move:[],release:[],blade:[]},draws={strokes:0};
+function boot({nativeFrames=false,bladeTracking=false,manualWorker=false,hideDeviceDetails=false,cameraBlocked=false,cameraError}={}){
+ const elements=new Map(),events=new Map(),workers=[],captures=[];let stopped=0,closed=0,clock=100,nextCallback=0,opens=0;const callbacks=new Map(),cursors=[],calls={begin:[],move:[],release:[],blade:[]},draws={strokes:0};
  class Element{
   constructor(){this.value='';this.checked=true;this.dataset={};this.style={setProperty(){}};this.classList={toggle(){}};this.currentTime=1;this.readyState=2;this.videoWidth=640;this.videoHeight=480;}
   getContext(){return new Proxy({},{get:(_,key)=>()=>{if(key==='stroke')draws.strokes++;}});}addEventListener(){}replaceChildren(){}add(){}remove(){this.removed=true;}append(){}async play(){}
  }
  const $=key=>{if(!elements.has(key))elements.set(key,new Element());return elements.get(key);};$('#hand-limit').value='2';$('#skeleton').checked=false;$('#hand-smoothing').value='70';if(nativeFrames){$('#camera').requestVideoFrameCallback=cb=>{const id=++nextCallback;callbacks.set(id,cb);return id;};$('#camera').cancelVideoFrameCallback=id=>callbacks.delete(id);}
  const document={querySelector:$,querySelectorAll:()=>[],addEventListener:(name,fn)=>events.set(name,fn),body:new Element(),hidden:false,createElement:()=>{const el=new Element();cursors.push(el);return el;},elementFromPoint:()=>null};document.body.dataset.quality='balanced';
+ if(cameraBlocked)document.permissionsPolicy={allowsFeature:name=>name!=='camera'};
  const track={label:'Integrated webcam',stop(){stopped++;},getSettings:()=>({deviceId:'local-test-camera'}),addEventListener(){}};
  const stream={getTracks:()=>[track],getVideoTracks:()=>[track]};
- const mediaDevices={enumerateDevices:async()=>[{kind:'videoinput',label:'Integrated webcam',deviceId:'local-test-camera'}],getUserMedia:async()=>stream,addEventListener(){}};
+ const mediaDevices={enumerateDevices:async()=>[{kind:'videoinput',label:hideDeviceDetails?'':'Integrated webcam',deviceId:hideDeviceDetails?'':'local-test-camera'}],getUserMedia:async()=>{opens++;if(cameraError)throw cameraError;return stream;},addEventListener(){}};
  class Worker{
   constructor(){this.frames=[];this.terminated=false;workers.push(this);}
-  postMessage(data){if(data.type==='init')queueMicrotask(()=>this.onmessage({data:{type:'ready',delegate:'GPU'}}));else this.frames.push(data);}
+  postMessage(data){if(data.type==='init'){if(!manualWorker)queueMicrotask(()=>this.ready());}else this.frames.push(data);}
+  ready(){this.onmessage({data:{type:'ready',delegate:'GPU'}});}
   terminate(){this.terminated=true;}
  }
  const sandbox={document,navigator:{mediaDevices},localStorage:{getItem:()=>'',setItem(){},removeItem(){}},Option:class{},Worker,URL,createHandMotion,createRateMeter,createFrameGate,TRACKING_PROFILES,clamp,pinchState,chooseCamera,associateHands,console,setTimeout,clearTimeout,queueMicrotask,calls,bladeTracking,performance:{now:()=>clock},innerWidth:1200,innerHeight:800,window:{addEventListener(){},scrollBy(){}},createImageBitmap:()=>new Promise(resolve=>captures.push(()=>resolve({close(){closed++;}})))};
  vm.createContext(sandbox);
  let source=readFileSync(new URL('../dist/hand-control.mjs',import.meta.url),'utf8').replace(/^import .*;\r?$/gm,'').replace('export function','function').replace('import.meta.url',"'http://localhost/hand-control.mjs'");
  vm.runInContext(source+';globalThis.controller=createHandControl({stagePoint:(x,y)=>({inside:true,x,y}),begin:(...args)=>calls.begin.push(args),move:(...args)=>calls.move.push(args),release:(...args)=>calls.release.push(args),isGrabbing:()=>false,toast(){},getMode:()=>"grab",tracksFinger:()=>bladeTracking,trackFinger:(...args)=>{calls.blade.push(args);return true;}});',sandbox);
- return {elements,events,cursors,calls,draws,setNow:now=>clock=now,present(now,mediaTime,presentedFrames){clock=now;const [id,cb]=callbacks.entries().next().value;callbacks.delete(id);cb(now,{mediaTime,presentedFrames});},callbacks,controller:sandbox.controller,workers,captures,document,video:$('#camera'),get stopped(){return stopped;},get closed(){return closed;}};
+ return {elements,events,cursors,calls,draws,setNow:now=>clock=now,present(now,mediaTime,presentedFrames){clock=now;const [id,cb]=callbacks.entries().next().value;callbacks.delete(id);cb(now,{mediaTime,presentedFrames});},callbacks,controller:sandbox.controller,workers,captures,document,video:$('#camera'),get opens(){return opens;},get stopped(){return stopped;},get closed(){return closed;}};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+test('the preview opens while tracking loads and a browser with hidden device IDs keeps the current stream',async()=>{
+ const a=boot({manualWorker:true,hideDeviceDetails:true});
+ const ready=a.controller.toggle();
+ await flush();
+ assert.equal(a.opens,1);
+ assert.equal(a.controller.active,false);
+ assert.equal(a.controller.cameraOpen,true);
+ assert.equal(a.elements.get('#camera-preview').hidden,false);
+ assert.match(a.elements.get('#tracking-status').textContent,/loading hand tracking/i);
+ a.workers[0].ready();
+ await ready;
+ assert.equal(a.controller.active,true);
+ a.controller.stop();
+ assert.equal(a.stopped,1);
+});
+test('a camera policy block reports a useful status without starting a stream',async()=>{
+ const a=boot({cameraBlocked:true});
+ await a.controller.toggle();
+ assert.equal(a.opens,0);
+ assert.equal(a.controller.active,false);
+ assert.match(a.elements.get('#tracking-status').textContent,/camera blocked/i);
+ assert.match(a.elements.get('#camera-active').textContent,/directly in Chrome or Edge/);
+});
+test('a declined permission remains visible after startup cleanup',async()=>{
+ const a=boot({cameraError:Object.assign(new Error('Permission denied'),{name:'NotAllowedError'})});
+ await a.controller.toggle();
+ assert.equal(a.controller.active,false);
+ assert.equal(a.elements.get('#camera-preview').hidden,true);
+ assert.match(a.elements.get('#tracking-status').textContent,/permission needed/i);
+ assert.match(a.elements.get('#camera-active').textContent,/Allow Camera/);
+});
 test('camera captures only one frame until a worker result arrives, and stopping terminates it',async()=>{
  const a=boot();await a.controller.toggle();assert.equal(a.controller.active,true);
  a.controller.tick(100);a.video.currentTime++;a.controller.tick(200);assert.equal(a.captures.length,1);

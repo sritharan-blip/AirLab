@@ -25,6 +25,11 @@ export function createHandControl({stagePoint, begin, move, release, isGrabbing,
   let selected=''; try{selected=localStorage.getItem('airlab.camera.v2')||'';}catch{}
   const connections=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
   const labels=text=>{document.querySelectorAll('.camera-label').forEach(el=>el.textContent=text);};
+  function reportCameraError(summary, detail) {
+    $('#tracking-status').textContent = summary;
+    $('#camera-active').textContent = detail;
+    toast(detail);
+  }
   function dropState(state){release(false,state.id);state.cursor.remove();states.delete(state.id);}
   function releaseAll(){for(const s of states.values()){release(false,s.id);s.armed=false;s.pinched=false;s.range=null;s.field=false;}}
   function stop(){
@@ -47,35 +52,70 @@ export function createHandControl({stagePoint, begin, move, release, isGrabbing,
   const constraints=id=>({audio:false,video:{...(id?{deviceId:{exact:id}}:{}),width:{ideal:640},height:{ideal:480},frameRate:{ideal:144}}});
   async function start(){
     if(loading)return;
-    if(!navigator.mediaDevices?.getUserMedia){toast('Camera access requires HTTPS or localhost.');return;}
+    const cameraPolicy = document.permissionsPolicy ?? document.featurePolicy;
+    if (cameraPolicy?.allowsFeature?.('camera') === false) {
+      reportCameraError('Camera blocked in this view', 'Open AirLab directly in Chrome or Edge to allow this site to use your webcam.');
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const detail = window.isSecureContext === false ? 'Open AirLab at its HTTPS address to use the webcam.' :
+        'Camera access is unavailable in this browser view. Open AirLab directly in Chrome or Edge.';
+      reportCameraError('Camera unavailable', detail);
+      return;
+    }
     loading=true;const ticket=++generation;
     $('#camera-source').disabled=true;$('#hand-limit').disabled=true;
-    labels('Starting camera…');$('#tracking-status').textContent='Preparing hand tracking…';
+    labels('Starting camera…');$('#tracking-status').textContent='Waiting for camera…';
+    $('#camera-active').textContent='Allow camera access if your browser asks.';
     let candidate=null;
+    let trackerStarting=false;
     const valid=()=>ticket===generation;
     try{
       let devices=await refresh();
       if(!valid())return;
       let choice=chooseCamera(devices,selected);
-      // Names may be hidden until permission is granted. This initial stream is
-      // never attached to the preview or sent to the detector.
+      // Some browsers conceal camera names and IDs until a stream is open.
       if(!devices.some(d=>d.label)){
         candidate=await navigator.mediaDevices.getUserMedia(constraints());
         if(!valid()){candidate.getTracks().forEach(t=>t.stop());return;}
         devices=await refresh();choice=chooseCamera(devices,selected);
       }
+      const probedTrack = candidate?.getVideoTracks()[0];
+      const probedId = probedTrack?.getSettings().deviceId;
+      if (!devices.some(device => device.label) && probedTrack) {
+        choice = chooseCamera([{kind:'videoinput', deviceId:probedId || '', label:probedTrack.label}], selected);
+      }
       if(selected&&!choice){const e=new Error('The selected camera is unavailable.');e.name='OverconstrainedError';throw e;}
       if(!choice){const e=new Error('No computer webcam was found. Choose a camera from the list.');e.name='NoLocalCameraError';throw e;}
-      if(candidate&&candidate.getVideoTracks()[0]?.getSettings().deviceId!==choice.deviceId){candidate.getTracks().forEach(t=>t.stop());candidate=null;}
+      const differentCamera = choice.deviceId && probedId ? choice.deviceId !== probedId :
+        Boolean(choice.label && probedTrack?.label && choice.label !== probedTrack.label);
+      if(candidate&&differentCamera){candidate.getTracks().forEach(t=>t.stop());candidate=null;}
       if(!candidate)candidate=await navigator.mediaDevices.getUserMedia(constraints(choice.deviceId));
       if(!valid()){candidate.getTracks().forEach(t=>t.stop());return;}
-      stream=candidate;candidate=null;video.srcObject=stream;await video.play();
+      stream=candidate;candidate=null;video.srcObject=stream;
+      $('#camera-preview').hidden=$('#preview-toggle')?.checked===false;
+      const actual=stream.getVideoTracks()[0];
+      actual.addEventListener('ended', () => {
+        if (!valid()) return;
+        stop();
+        reportCameraError('Camera disconnected', 'The webcam disconnected. Select an available camera and try again.');
+      }, {once:true});
+      await video.play();
+      if(!valid())return;
+      trackerStarting=true;
+      labels('Loading hand tracking…');
+      $('#tracking-status').textContent='Camera on · loading hand tracking';
+      $('#camera-active').textContent=`Using: ${actual.label || choice.label || 'Selected webcam'} · loading hand tracking`;
       const maxHands=Number($('#hand-limit').value);
       await new Promise((resolve,reject)=>{
-        if(typeof Worker==='undefined'||typeof createImageBitmap==='undefined')throw new Error('This browser does not support background camera tracking. Use current Chrome or the Windows app.');
+        if(typeof Worker==='undefined'||typeof createImageBitmap==='undefined'){
+          const error=new Error('This browser does not support background camera tracking.');
+          error.name='TrackingUnsupportedError';
+          throw error;
+        }
         worker=new Worker(new URL('./hand-worker.js',import.meta.url));workerReject=reject;
         workerTimeout=setTimeout(()=>reject(new Error('Hand tracking took too long to load. Restart the camera.')),45000);
-        worker.onerror=event=>{if(!valid())return;reject(new Error(event.message||'Tracking worker failed'));if(active){stop();toast('Background tracking failed. You can still use the mouse.');}};
+        worker.onerror=event=>{if(!valid())return;reject(new Error(event.message||'Tracking worker failed'));if(active){stop();reportCameraError('Hand tracking stopped', 'The hand tracker stopped unexpectedly. Enable hand tracking to retry.');}};
         worker.onmessage=({data})=>{
           if(!valid())return;
           if(data.type==='ready'){delegate=data.delegate;clearTimeout(workerTimeout);workerReject=null;resolve();}
@@ -83,23 +123,31 @@ export function createHandControl({stagePoint, begin, move, release, isGrabbing,
             gate.finish(gateTicket);
             if(active&&!document.hidden){const now=performance.now();lastResult=now;detectionRate.mark(now);inferenceMs=inferenceMs?inferenceMs*.7+data.ms*.3:data.ms;const latency=Math.max(0,now-(data.timestamp??now));pipelineMs=pipelineMs?pipelineMs*.7+latency*.3:latency;processResult(data,now);captureLatest(now);}
           }
-          else if(data.type==='error'){reject(new Error(data.message));if(active){stop();toast('Tracking stopped. Try fewer hands or restart your camera.');}}
+          else if(data.type==='error'){reject(new Error(data.message));if(active){stop();reportCameraError('Hand tracking stopped', 'Try a lower hand limit or restart the camera.');}}
         };
         worker.postMessage({type:'init',maxHands});
       });
       if(!valid())return;
       active=true;loading=false;resetMetrics();scheduleVideoFrame(ticket);$('#camera-source').disabled=false;$('#hand-limit').disabled=false;
       $('#camera-preview').hidden=$('#preview-toggle')?.checked===false;$('#onboarding').hidden=true;labels('Turn camera off');
-      const actual=stream.getVideoTracks()[0];
       const settings=actual.getSettings();$('#camera-active').textContent=`Using: ${actual.label||choice.label||'Selected webcam'} · ${settings.width||'?'}×${settings.height||'?'} · ${Math.round(settings.frameRate||0)||'?'} fps reported · ${maxHands} hand${maxHands===1?'':'s'}`;
       $('#tracking-status').textContent='Show your open hands';toast('Each hand can grab a different object. Open fingers first, then pinch.');
-      actual.addEventListener('ended',()=>{if(active){stop();toast('The webcam disconnected. Choose an available camera and enable tracking again.');}},{once:true});
     }catch(error){
       candidate?.getTracks().forEach(t=>t.stop());
       if(!valid())return;
       stop();
-      const messages={NotAllowedError:'Camera access was declined. Allow this app to use your webcam in your browser.',NotFoundError:'No webcam found. Connect your computer webcam and refresh the list.',NotReadableError:'This camera is busy. Close other camera apps or choose a different webcam.',OverconstrainedError:'The selected webcam is unavailable. Refresh the camera list and choose it again.',NoLocalCameraError:'Only phone or virtual cameras were found. Connect your computer webcam, then refresh the list.'};
-      $('#camera-active').textContent=messages[error.name]||'Could not start tracking. Choose a webcam and try again.';toast($('#camera-active').textContent);console.warn('Camera:',error.name,error.message);
+      const messages = {
+        NotAllowedError: ['Camera permission needed', 'Allow Camera for this site in your browser settings. In an embedded view, try opening AirLab directly in Chrome or Edge.'],
+        NotFoundError: ['No webcam found', 'Connect your webcam and refresh the camera list.'],
+        NotReadableError: ['Camera is busy', 'Close other apps or tabs using the camera, or select a different webcam.'],
+        OverconstrainedError: ['Camera unavailable', 'Refresh the camera list and choose an available webcam.'],
+        NoLocalCameraError: ['Choose a computer webcam', 'Auto skipped phone or virtual feeds. Select a camera explicitly or connect a built-in or USB webcam.'],
+        TrackingUnsupportedError: ['Tracking unsupported', 'Open AirLab directly in a recent Chrome or Edge browser to use hand tracking.'],
+      };
+      const fallback = trackerStarting ? ['Hand tracker failed to load', 'The camera opened, but hand tracking could not start. Reload AirLab and try again.'] :
+        ['Could not start the camera', 'Choose a webcam in Camera settings and try again.'];
+      reportCameraError(...(messages[error.name] || fallback));
+      console.warn('Camera:',error.name,error.message);
     }
   }
   async function toggle(){if(loading){stop();return;}if(active)stop();else await start();}
@@ -218,5 +266,5 @@ export function createHandControl({stagePoint, begin, move, release, isGrabbing,
   document.addEventListener('visibilitychange',()=>{releaseAll();ctx.clearRect(0,0,innerWidth,innerHeight);overlayDirty=false;for(const s of states.values()){s.cursor.hidden=true;s.visible=false;}cameraRate.reset();detectionRate.reset();overlayRate.reset();lastPresented=null;lastRender=0;});
   document.addEventListener('fullscreenchange',()=>{const parent=document.fullscreenElement||document.body;parent.append(overlay);for(const s of states.values())parent.append(s.cursor);});
   window.addEventListener('pagehide',stop);
-  return {toggle,stop,tick,releaseAll,get active(){return active;},get count(){return count;}};
+  return {toggle,stop,tick,releaseAll,get active(){return active;},get cameraOpen(){return Boolean(stream);},get count(){return count;}};
 }

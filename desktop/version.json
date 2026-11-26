@@ -1,5 +1,5 @@
 {
-  "version": "4.8.0",
+  "version": "4.8.1",
   "desktopShellVersion": "1.1.0",
-  "releaseNotes": "Citrus Circuit adds six selectable swords with saved loadouts and fingertip-anchored, display-rate blade movement."
+  "releaseNotes": "The camera preview appears while hand tracking loads. AirLab keeps permission and startup errors visible and can reuse the active webcam when a browser hides device details."
 }
