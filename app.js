@@ -1,6 +1,6 @@
 import {validateScene} from './scene-format.mjs';
 import {clamp, throwVelocity, entersBasket, fieldForce} from './interaction.mjs';
-import {createHandControl} from './hand-control.mjs';
+import {createHandControl} from './hand-control.mjs?v=4.8.1';
 import {createLabTools,TOOL_HELP} from './lab-tools.mjs';
 import {paintSolid} from './solid-art.mjs';
 import {createExperimentLab, slopeTrial} from './experiment-lab.mjs';
@@ -582,7 +582,7 @@ document.addEventListener('click', async e => {
 });
 $('#scene-file').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;try{if(file.size>300000)throw new Error('Scene file too large (300 KB maximum).');restoreScene(JSON.parse(await file.text()));}catch(error){toast(error.message||'Could not import this scene.');}finally{e.target.value='';}});
 $('#performance').addEventListener('change',()=>{qualitySince=performance.now();applyQuality($('#performance').value==='auto'?'balanced':$('#performance').value);});
-$('#preview-toggle').addEventListener('change',()=>$('#camera-preview').hidden=!handControl.active||!$('#preview-toggle').checked);
+$('#preview-toggle').addEventListener('change',()=>$('#camera-preview').hidden=!handControl.cameraOpen||!$('#preview-toggle').checked);
 $('#hand-smoothing').addEventListener('input',()=>$('#smoothing-value').textContent=Number($('#hand-smoothing').value)<40?'Steady':Number($('#hand-smoothing').value)>60?'Responsive':'Balanced');
 cached.trails.addEventListener('change',()=>objects.forEach(b=>b.plugin.trail=[]));
 $('#material').addEventListener('change',()=>{const m=materials[$('#material').value];$('#bounce').value=Math.round(m.bounce*100);$('#bounce-value').textContent=`${$('#bounce').value}%`;toast('Material applies to new objects.');});
