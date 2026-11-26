@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="A physics playground controlled by your hands. Grab, throw, and explore gravity with your webcam.">
+  <meta name="theme-color" content="#080e10"><title>AirLab Studio — Make the invisible move</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css?v=4.7">
+  <link rel="stylesheet" href="./arcade.css?v=4.8">
+</head>
+<body>
+<header class="site-header">
+ <div class="brand">
+  <button type="button" class="brand-symbol" data-action="arcade-sigil" aria-label="AirLab emblem">◈</button>
+  <a href="./" id="brand-home" aria-label="AirLab home">AirLab <span class="brand-edition">Studio</span></a>
+ </div>
+ <nav id="lab-navigation" aria-label="Main navigation"><button data-action="open-lab">Physics Lab</button><button data-action="guide">Controls <span aria-hidden="true">↗</span></button><button data-action="show-tracking">Camera settings</button></nav>
+ <button class="camera-main" data-action="camera"><span class="camera-icon" aria-hidden="true">◉</span><span class="camera-label">Enable hand tracking</span><span aria-hidden="true">↗</span></button>
+</header>
+<main id="playground-page">
+ <section class="intro">
+  <div><h1>Physics <em>playground</em></h1><p>Grab it. Throw it. Change the rules.</p></div>
+  <div class="intro-actions">
+   <button data-action="shuffle-scene" class="shuffle-button" title="Load a random experiment"><span aria-hidden="true">⤨</span> Surprise me</button>
+   <button data-action="snapshot" title="Save experiment image"><span aria-hidden="true">↧</span> Snapshot</button>
+   <button data-action="focus" class="focus-button" aria-pressed="false"><span aria-hidden="true">◫</span> Focus mode</button>
+  </div>
+ </section>
+ <div class="workspace">
+  <section class="lab-shell" aria-label="Interactive physics laboratory">
+   <div class="lab-toolbar"><div class="environment" role="group" aria-label="Gravity environment"><button class="selected" data-gravity="earth">◉ <span>Earth</span></button><button data-gravity="moon">☾ <span>Moon</span></button><button data-gravity="space">✧ <span>Zero G</span></button><button data-gravity="reverse">↑ <span>Reverse</span></button></div><div class="toolbar-right"><button id="pause" data-action="pause" title="Pause physics" aria-label="Pause physics">Ⅱ</button><button data-action="reset" title="Reset scene" aria-label="Reset scene">↺</button><button data-action="fullscreen" title="Fullscreen laboratory" aria-label="Fullscreen laboratory">⛶</button></div></div>
+   <div class="tool-strip" role="group" aria-label="Interaction tool">
+    <button data-tool="grab" class="selected" aria-pressed="true"><span aria-hidden="true">◇</span>Grab</button>
+    <button data-tool="magnet" aria-pressed="false"><span aria-hidden="true">⊕</span>Magnet</button>
+    <button data-tool="repel" aria-pressed="false"><span aria-hidden="true">⊖</span>Repel</button>
+    <button data-tool="stretch" aria-pressed="false"><span aria-hidden="true">↔</span>Stretch</button>
+    <button data-tool="draw" aria-pressed="false"><span aria-hidden="true">⌁</span>Draw</button>
+    <button data-tool="portal" aria-pressed="false"><span aria-hidden="true">◎</span>Portal</button>
+    <button data-tool="rope" aria-pressed="false"><span aria-hidden="true">∿</span>Rope</button>
+    <button data-tool="spring" aria-pressed="false"><span aria-hidden="true">⇝</span>Spring</button>
+    <button data-tool="freeze" aria-pressed="false"><span aria-hidden="true">❄</span>Freeze</button>
+    <button data-tool="clone" aria-pressed="false"><span aria-hidden="true">⧉</span>Clone</button>
+    <button data-tool="erase" aria-pressed="false"><span aria-hidden="true">⌫</span>Erase</button>
+    <button data-action="clear" title="Clear the scene"><span aria-hidden="true">×</span>Clear</button>
+   </div>
+   <div class="build-strip"><p id="tool-hint" role="status">Pinch an object to grab it. Move and release to throw.</p><div><span id="build-stats">0 platforms · 0/2 portals · 0 links</span><button data-action="undo-platform" disabled>Undo platform</button><button data-action="clear-portals" disabled>Clear portals</button><button data-action="clear-links" disabled>Clear links</button></div></div>
+   <div class="stage" id="stage"><canvas id="world" aria-label="Physics scene. Drag objects with a mouse or use camera hand tracking."></canvas>
+    <div id="scene-sweep" class="scene-sweep" aria-hidden="true"></div>
+    <div class="stage-heading"><h2 id="scene-title">The playground</h2><span id="scene-description">Drag an object to explore momentum.</span></div>
+    <div class="stage-status"><span class="live-dot"></span><span id="tracking-status">Mouse control ready</span></div>
+    <div class="camera-preview" id="camera-preview" hidden><video id="camera" autoplay playsinline muted></video><span>LIVE · LOCAL ONLY</span></div>
+    <div class="challenge-score" id="challenge-score" hidden><span>Shots landed</span><strong id="score" aria-live="polite">0</strong></div>
+    <div class="onboarding" id="onboarding">
+     <strong>Point. Pinch. Throw.</strong>
+     <p>Enable your camera to grab objects with your hands.</p>
+     <button class="dismiss" data-action="dismiss" aria-label="Dismiss introduction">×</button>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div class="stage-bottom"><span><span class="live-dot"></span><span id="run-status">SIMULATION LIVE</span></span><span id="grab-status">CLICK + DRAG TO EXPLORE</span><span class="fps-meters">RENDER <span id="fps">—</span> FPS <span class="meter-divider">/</span> TRACK <span id="tracking-fps">—</span> FPS</span></div>
+   </div>
+   <section class="scene-dock" aria-labelledby="scene-dock-title">
+    <div class="dock-heading"><h2 id="scene-dock-title">Jump into a scene</h2><button type="button" data-action="show-scenes">All scenes <span aria-hidden="true">↗</span></button></div>
+    <div class="scene-cards">
+     <button class="scene-card tower-card" data-scene="tower"><span aria-hidden="true">▥</span><strong>Tower crash</strong><small>Momentum</small></button>
+     <button class="scene-card orbit-card" data-scene="orbit"><span aria-hidden="true">✧</span><strong>Zero-G</strong><small>Free flight</small></button>
+     <button class="scene-card target-card" data-scene="target"><span aria-hidden="true">◎</span><strong>Trick shot</strong><small>Basket challenge</small></button>
+     <button class="scene-card spring-card" data-scene="chain"><span aria-hidden="true">⇝</span><strong>Spring cascade</strong><small>Elastic motion</small></button>
+    </div>
+   </section>
+  </section>
+  <aside class="inspector">
+   <div class="panel-heading"><h2>Control room</h2><span class="hands-meter"><span id="hand-count">0</span> hands</span></div>
+   <div class="panel-nav" id="panel-nav" data-active-panel="build" role="group" aria-label="Control room section">
+    <button type="button" data-panel="build" aria-controls="panel-build" aria-pressed="true">Build</button>
+    <button type="button" data-panel="scenes" aria-controls="panel-scenes" aria-pressed="false">Scenes</button>
+    <button type="button" data-panel="lab" aria-controls="panel-lab" aria-pressed="false">Lab</button>
+    <button type="button" data-panel="tracking" aria-controls="panel-tracking" aria-pressed="false">Tracking</button>
+   </div>
+   <div class="panel-window">
+   <div class="panel-content is-current" id="panel-build">
+   <section class="panel-section"><div class="section-label"><h3>Add an object</h3><span id="object-count">0 / 35</span></div><div class="spawn-grid three-shapes"><button data-spawn="ball"><span class="shape ball"></span><strong>Orb</strong><small>Give it a bounce</small></button><button data-spawn="box"><span class="shape box"></span><strong>Block</strong><small>Build something</small></button><button data-spawn="triangle"><span class="shape triangle"></span><strong>Triangle</strong><small>A different angle</small></button></div><label class="slider-label" for="material">Material for new objects</label><select id="material"><option value="rubber">Rubber · elastic</option><option value="ice">Ice · slippery</option><option value="steel">Steel · heavy</option><option value="cork">Cork · light</option></select><label class="slider-label size-label" for="object-size">New object size <output id="size-value">Medium</output></label><input id="object-size" type="range" min="0.6" max="1.4" step="0.1" value="1" aria-label="New object size"></section>
+   <section class="panel-section"><div class="section-label"><h3>Motion</h3></div><label class="slider-label" for="bounce">Bounciness <output id="bounce-value">65%</output></label><input id="bounce" aria-label="Bounciness" type="range" min="0" max="100" value="65"><div class="range-labels"><span>Soft landing</span><span>Superball</span></div><label class="toggle-row" for="motion-blur">Motion blur<input id="motion-blur" type="checkbox" checked><span class="switch"></span></label><label class="toggle-row" for="trails">Motion trails<input id="trails" type="checkbox" checked><span class="switch"></span></label><label class="toggle-row" for="slow-motion">Slow motion · 0.3×<input id="slow-motion" type="checkbox"><span class="switch"></span></label><label class="toggle-row" for="vectors">Velocity arrows<input id="vectors" type="checkbox"><span class="switch"></span></label></section>
+   </div>
+   <div class="panel-content" id="panel-scenes" hidden inert aria-hidden="true">
+   <section class="panel-section"><div class="section-label"><h3>Experiments</h3></div><button class="experiment" data-scene="tower"><span class="experiment-icon">▥</span><span><strong>Knock it down</strong><small>A tower. A ball. Your move.</small></span><span>↗</span></button><button class="experiment" data-scene="target"><span class="experiment-icon">◎</span><span><strong>Make the shot</strong><small>Can you land it in the basket?</small></span><span>↗</span></button><button class="experiment" data-scene="shower"><span class="experiment-icon">⁙</span><span><strong>Orb shower</strong><small>Shape a cloud with force fields.</small></span><span>↗</span></button><button class="experiment" data-scene="pendulum"><span class="experiment-icon">◴</span><span><strong>Pendulum lab</strong><small>Energy in motion. Grab and release.</small></span><span>↗</span></button><button class="experiment" data-scene="chain"><span class="experiment-icon">∿</span><span><strong>Spring cascade</strong><small>Pull a chain of elastic connections.</small></span><span>↗</span></button><button class="experiment" data-scene="bridge"><span class="experiment-icon">⌒</span><span><strong>Suspension bridge</strong><small>Load it. Stretch it. Test its limits.</small></span><span>↗</span></button><button class="experiment" data-scene="orbit"><span class="experiment-icon">✧</span><span><strong>Zero-G constellation</strong><small>Sculpt a weightless particle cloud.</small></span><span>↗</span></button></section>
+   <section class="panel-section"><div class="section-label"><h3>Scene library</h3></div><p class="panel-note">Save objects, motion, platforms, portals and connections on this device.</p><div class="action-grid"><button data-action="save-scene">↓ Save locally</button><button data-action="load-scene">↗ Restore save</button><button data-action="export-scene">Export JSON</button><button data-action="import-scene">Import JSON</button></div><input id="scene-file" type="file" accept=".json,application/json" hidden><p id="save-status" class="panel-note" role="status">No scene saved yet</p></section>
+   </div>
+   <div class="panel-content" id="panel-lab" hidden inert aria-hidden="true">
+    <section class="panel-section">
+     <div class="section-label"><h3>Build a track</h3></div>
+     <div class="lab-settings">
+      <label>Angle (°)<select id="lab-angle"><option value="10">10°</option><option value="18">18°</option><option value="24" selected>24°</option><option value="30">30°</option><option value="38">38°</option><option value="45">45°</option></select></label>
+      <label>Ramp length (m)<select id="lab-length"><option value="1.8">1.8 m</option><option value="2.8" selected>2.8 m</option><option value="3.5">3.5 m</option></select></label>
+     </div>
+     <label class="toggle-row" for="lab-flip">Slope down to the left<input id="lab-flip" type="checkbox"><span class="switch"></span></label>
+     <div class="action-grid"><button data-action="lab-ramp">Place a ramp</button><button data-action="lab-slide">Place a slide</button></div>
+     <p class="panel-note">Click or pinch to place. Track size fits the available space.</p>
+    </section>
+    <section class="panel-section">
+     <div class="section-label"><h3>Run a controlled trial</h3></div>
+     <label class="lab-settings">Free-fall distance<select id="lab-drop-distance"><option value=".6">0.6 m</option><option value="1">1.0 m</option><option value="1.5" selected>1.5 m</option><option value="2">2.0 m</option></select></label>
+     <div class="action-grid"><button data-action="lab-incline">Run incline</button><button data-action="lab-drop">Run free fall</button></div>
+     <p class="panel-note">Starts a fresh scene. Incline uses your angle and length. Try Earth and Moon gravity.</p>
+    </section>
+    <section class="panel-section measurements" id="lab-readout">
+     <div class="section-label"><h3>Motion recorder</h3><span id="lab-time">0.00 s</span></div>
+     <div class="lab-recorder-actions"><button data-action="lab-pick">Select object</button><button id="lab-start" data-action="lab-start" disabled>Start recording</button><button id="lab-stop" data-action="lab-stop" disabled>Stop</button></div>
+     <p class="panel-note" id="lab-status" role="status">Select a body or run a controlled trial to record motion.</p>
+     <div class="lab-settings">
+      <label>Measure along<select id="lab-axis"><option value="x">X · right positive</option><option value="y">Y · up positive</option><option value="experiment" id="lab-experiment-axis" disabled>Trial direction</option></select></label>
+      <label>Plot<select id="lab-series"><option value="s">Displacement</option><option value="v">Velocity</option><option value="a">Acceleration</option></select></label>
+     </div>
+     <dl class="lab-readings">
+      <div><dt>Displacement</dt><dd><output id="lab-s">—</output> <small>m</small></dd></div>
+      <div><dt>Velocity</dt><dd><output id="lab-v">—</output> <small>m/s</small></dd></div>
+      <div><dt>Acceleration</dt><dd><output id="lab-a">—</output> <small>m/s²</small></dd></div>
+     </dl>
+     <canvas id="lab-plot" width="260" height="139" aria-label="Motion versus simulation time"></canvas>
+     <div id="lab-prediction" hidden>
+      <p class="panel-note" id="lab-model"></p>
+      <div class="lab-comparison"><span>Predicted <strong id="lab-expected">—</strong></span><span>Measured average <strong id="lab-average">—</strong></span></div>
+      <p class="panel-note">Acceleration in m/s². Dashed line is the prediction along the trial direction.</p>
+     </div>
+     <button id="lab-csv" data-action="lab-csv" disabled>Export measurements CSV</button>
+     <button id="lab-repeat" data-action="lab-repeat" hidden>Run again</button>
+     <p class="panel-note">Signed values in simulated metres and seconds. Impacts can spike instantaneous acceleration.</p>
+    </section>
+   </div>
+   <div class="panel-content" id="panel-tracking" hidden inert aria-hidden="true">
+   <section class="camera-settings" aria-label="Camera and tracking settings">
+  <div class="camera-choice"><label for="camera-source">CAMERA SOURCE</label><div class="select-with-button"><select id="camera-source"><option value="">Auto · prefer computer webcam</option></select><button id="refresh-cameras" aria-label="Refresh camera list" title="Refresh camera list">↻</button></div><p id="camera-active" role="status">Camera off · choose your computer webcam below</p></div>
+  <div class="hand-choice"><label for="hand-limit">MAX HANDS</label><select id="hand-limit"><option value="1">1 hand · fastest</option><option value="2" selected>2 hands</option><option value="4">4 hands · group mode</option></select></div>
+  <div class="performance-choice"><label for="performance">PERFORMANCE</label><select id="performance"><option value="auto">Auto · adaptive</option><option value="fast">Fast · lighter effects</option><option value="balanced">Balanced</option><option value="quality">Quality · sharper</option></select><p id="quality-label">Balanced rendering</p></div>
+ </section>
+   <section class="panel-section"><div class="section-label"><h3>Tracking & display</h3></div><label class="toggle-row" for="skeleton">Hand skeleton<input id="skeleton" type="checkbox" checked><span class="switch"></span></label><label class="toggle-row" for="preview-toggle">Camera preview<input id="preview-toggle" type="checkbox" checked><span class="switch"></span></label><label class="slider-label" for="hand-smoothing">Hand response <output id="smoothing-value">Responsive</output></label><input id="hand-smoothing" type="range" min="20" max="80" value="70"><p class="panel-note">Lower = steadier. Higher = quicker response.</p><label class="toggle-row" for="motion-prediction">Low-latency motion<input id="motion-prediction" type="checkbox" checked><span class="switch"></span></label><p class="panel-note">Short motion estimates between detections. Pinches use real camera detections.</p><div class="tracking-readout"><span>CAMERA DELIVERED</span><strong id="camera-fps">—</strong></div><div class="tracking-readout"><span>REAL DETECTIONS</span><strong id="detection-fps">—</strong></div><div class="tracking-readout"><span>OVERLAY RENDER</span><strong id="overlay-fps">—</strong></div><div class="tracking-readout"><span>FRAME → RESULT</span><strong id="pipeline-latency">—</strong></div><div class="tracking-readout"><span>INFERENCE</span><strong id="tracking-speed">OFF</strong></div><p class="panel-note">Render FPS is display cadence. Tracking FPS counts real detections. Frame → result excludes camera exposure and display delay. A 30 fps webcam cannot provide 144 unique hand samples per second.</p></section>
+   </div>
+   </div>
+   <div class="gravity-readout"><span id="gravity-symbol">◉</span><div><small id="gravity-name">EARTH GRAVITY</small><strong><span id="gravity-value">9.81</span> <span>m/s²</span></strong></div><span class="sim-note" title="Illustrative 2D simulation; display uses nominal planetary gravity.">SIM</span></div>
+  </aside>
+ </div>
+</main>
+<main id="arcade-page" hidden aria-labelledby="arcade-heading">
+ <header class="arcade-top">
+  <div><h1 id="arcade-heading" tabindex="-1">AirLab <em>Arcade</em></h1><p id="arcade-tracking">Mouse / touch ready</p></div>
+  <button type="button" data-action="arcade-exit">← Playground</button>
+ </header>
+ <p id="arcade-notice" role="status"></p>
+ <section id="arcade-menu" class="arcade-menu" aria-label="Choose a game">
+  <button type="button" class="arcade-card orbit" data-game="orbit">
+   <span class="arcade-card-illustration" aria-hidden="true"><i></i><i></i><i></i></span>
+   <span class="arcade-card-body"><strong>Orbit Breaker</strong>
+    <span>Break the blockade across 12 missions in three space sectors.</span>
+    <small>Best <b id="arcade-orbit-best">0</b></small></span>
+   <span class="arcade-play-icon" aria-hidden="true">↗</span>
+  </button>
+  <button type="button" class="arcade-card citrus" data-game="citrus">
+   <span class="arcade-card-illustration" aria-hidden="true"><i></i><i></i><i></i></span>
+   <span class="arcade-card-body"><strong>Citrus Circuit</strong>
+    <span>Slice through three neon arenas. Hit your score goal to unlock the next.</span>
+    <small>Best <b id="arcade-citrus-best">0</b></small></span>
+   <span class="arcade-play-icon" aria-hidden="true">↗</span>
+  </button>
+ </section>
+ <section class="arcade-chapter" id="arcade-map" aria-labelledby="arcade-map-title" hidden>
+  <div class="arcade-chapter-head">
+   <div><h2 id="arcade-map-title" tabindex="-1"></h2><p id="arcade-map-description"></p></div>
+   <div class="arcade-commands">
+    <button type="button" class="arcade-blade-toggle" id="arcade-map-blades" data-action="arcade-blades" aria-controls="arcade-blade-picker" aria-expanded="false" hidden>Blade · Moonsteel</button>
+    <button type="button" data-action="arcade-lobby">← Games</button>
+   </div>
+  </div>
+  <div id="arcade-levels" class="arcade-levels"></div>
+ </section>
+ <section id="arcade-blade-picker" aria-labelledby="arcade-blade-title" hidden>
+  <div class="arcade-blade-head">
+   <h2 id="arcade-blade-title">Choose your blade</h2>
+   <button type="button" data-action="arcade-close-blades">Done</button>
+  </div>
+  <div id="arcade-blade-rack" role="group" aria-label="Available blades"></div>
+ </section>
+ <section id="arcade-play" class="arcade-play" aria-labelledby="arcade-game-title" hidden>
+  <div class="arcade-toolbar">
+   <button type="button" data-action="arcade-map" id="arcade-map-back">← Missions</button>
+   <h2 id="arcade-game-title">Orbit Breaker</h2>
+   <div class="arcade-commands">
+    <button type="button" class="arcade-blade-toggle" id="arcade-play-blades" data-action="arcade-blades" aria-controls="arcade-blade-picker" aria-expanded="false" hidden>Blade · Moonsteel</button>
+    <button type="button" id="arcade-pulse" data-action="arcade-pulse" title="Fire a Nova pulse while the probe is in range" hidden disabled>Nova</button>
+    <button type="button" id="arcade-pause" data-action="arcade-pause">Pause</button><button type="button" data-action="arcade-restart">Restart</button>
+   </div>
+  </div>
+  <div class="arcade-arena">
+   <canvas id="arcade-world" width="960" height="540" tabindex="0" aria-label="Arcade arena. Use pinch gestures, or click and drag with a mouse."></canvas>
+   <div class="arcade-hud"><span id="arcade-meter"></span><span><small>Score</small> <b id="arcade-score">0</b> <small>Best</small> <b id="arcade-best">0</b></span></div>
+   <div class="arcade-phase" id="arcade-phase" hidden></div>
+   <div class="arcade-round" id="arcade-round" hidden>
+    <h3 id="arcade-round-title"></h3><p id="arcade-round-detail"></p>
+    <button type="button" id="arcade-continue" data-action="arcade-continue">Start round</button>
+   </div>
+  </div>
+  <div class="arcade-help"><p id="arcade-instructions"></p><span id="arcade-status" role="status"></span></div>
+ </section>
+ <div id="arcade-preview-slot"></div>
+</main>
+<img id="arcade-siege-art" data-src="./arcade-siege.png" alt="" hidden>
+<img id="arcade-market-art" data-src="./arcade-market.png" alt="" hidden>
+<footer class="site-footer"><span>AirLab Studio</span><span>JIT Innovate 2026</span></footer>
+<canvas id="hand-overlay" aria-hidden="true"></canvas>
+<dialog id="guide"><button class="dialog-close" data-action="close-guide" aria-label="Close guide">×</button><h2>AirLab controls</h2><ol><li><strong>Enable your camera.</strong><p>Allow camera access, sit in good light, and keep both hands visible. Select your built-in or USB webcam under Camera source. Auto prefers a computer webcam over named phone or virtual feeds. Video is processed on your device.</p></li><li><strong>Point, then pinch.</strong><p>Your index finger steers the cursor. Bring your thumb and index finger together over an object to grab it.</p></li><li><strong>Move and release.</strong><p>Lift and move the object. Separate your fingers to drop it, or move quickly as you release to throw.</p></li><li><strong>Control the whole lab.</strong><p>Pinch over buttons to select them. Pinch and drag the bounce slider. Open your fingers between clicks. Each hand can hold its own object. Choose 4 hands for group mode. With Magnet or Repel selected, pinch and hold over the scene to apply a force field. Hold an open cursor near the top or bottom edge to scroll. Stretch: pinch the same object with two hands, then spread or twist. With a mouse, Shift-drag an object in Stretch mode. Draw: pinch and trace a line, then release to create a solid platform. Portal: click or pinch two spots; released, unlinked objects teleport through the rings. Rope or Spring: select an object and then another object or an empty anchor point. A mouse or touchscreen works too.</p></li></ol><p class="guide-note">Keyboard: Space pauses, R resets, F toggles focus mode. Freeze toggles an object’s fixed position; Clone copies an object; Erase removes it and its connections. Save locally stores one complete scene on this device, and Export JSON makes a portable scene file. Performance Auto adapts drawing detail; choose Fast on slower computers. This is a visual 2D physics simulation; it provides no physical force feedback. Objects use simulated units. Camera access requires HTTPS or localhost.</p><button class="primary" data-action="close-guide">Got it. Let’s experiment ↗</button></dialog>
+<script src="./vendor/matter.min.js"></script><script type="module" src="./app.js?v=4.8"></script>
+</body></html>
